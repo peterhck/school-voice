@@ -27,6 +27,8 @@ ws.on('error', err => {
   const msg = JSON.parse(frame);
   if (msg.event !== "media" || !msg.chunk || !msg.chunk.payload) return;
 
+  console.log("The data is media data.");
+
   const b64 = msg.chunk.payload;              // SignalWire incoming audio
   const sttStream = await openai.audio.transcriptions.create({
     model: "gpt-4o-transcribe",
@@ -34,6 +36,8 @@ ws.on('error', err => {
     mimeType: "audio/raw;encoding=signed-integer;bits=16;rate=8000;endian=little",
     stream: true
   });
+
+  console.log("The data has been transcribed by OpenAI, gpt-4o-transcribe.");
 
   for await (const { text } of sttStream) {
     if (!text.trim()) continue;

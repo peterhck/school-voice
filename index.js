@@ -20,6 +20,9 @@ ws.on('error', err => {
 
   const lang = { "1": "Spanish", "2": "Haitian Creole", "3": "Mandarin" }
                [new URL(req.url,"http://x").searchParams.get("lang")] || "Spanish";
+
+  console.log("🟢 WebSocket CONNECTED:", req.url, "→ translating to", lang);
+
   ws.on("message", async frame => {
   // 1️⃣  Parse the JSON that SignalWire sends
   const msg = JSON.parse(frame);
@@ -48,7 +51,7 @@ ws.on('error', err => {
         await openai.chat.completions.create({
           model: "gpt-4o",
           messages: [
-            { role: "system", content: `Translate to ${targetLang}` },
+            { role: "system", content: `Translate to ${lang}` },
             { role: "user",   content: text }
           ],
           temperature: 0

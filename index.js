@@ -21,11 +21,18 @@ ws.on('error', err => {
   const lang = { "1": "Spanish", "2": "Haitian Creole", "3": "Mandarin" }
                [new URL(req.url,"http://x").searchParams.get("lang")] || "Spanish";
   ws.on("message", async frame => {
+
     const { event, media } = JSON.parse(frame);
     if (event !== "media") return;
+
+
     const stt = await openai.audio.transcriptions.create({
-      model: "gpt-4o-transcribe", audio: Buffer.from(media.payload,"base64"), stream: true
-    });
+  model: "gpt-4o-transcribe",          // or "whisper-1" for non-streaming
+  file: Buffer.from(b64, "base64"),    // <-- CORRECT key
+  mimeType: "audio/raw;encoding=signed-integer;bits=16;rate=8000;endian=little",
+  stream: true                         // keep if you want incremental words
+});
+
     for await (const { text } of stt) {
       const [{ message:{ content }}] =
         (await openai.chat.completions.create({

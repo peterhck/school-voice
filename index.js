@@ -48,6 +48,8 @@ ws.on('error', err => {
         temperature:0
       })).choices;
 
+      console.log("The contents of the Translation is: ", content);
+
     const speech = await openai.audio.speech.create({
       model:"tts-1",
       voice:"alloy",
@@ -56,11 +58,15 @@ ws.on('error', err => {
       sampleRate:8000
     });
 
+    console.log("The text has been converted to audio with OpenAI");
+
     ws.send(JSON.stringify({
       event:"media",
       track:"outbound",
       media:{ payload: Buffer.from(speech.audio).toString("base64") }
     }));
+
+    console.log("The audio data has been sent back to the websocket.");
   }
 });
 

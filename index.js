@@ -24,61 +24,46 @@ ws.on('error', err => {
   console.log("🟢 WebSocket CONNECTED:", req.url, "→ translating to", lang);
 
   ws.on("message", async frame => {
-  // 1️⃣  Parse the JSON that SignalWire sends
   const msg = JSON.parse(frame);
-
-  // 2️⃣  Ignore heart-beats and non-audio events
   if (msg.event !== "media" || !msg.chunk || !msg.chunk.payload) return;
 
-  // 3️⃣  Extract the base-64 audio blob into b64
-  const b64 = msg.chunk.payload;       // <-- NOW b64 exists
+  const b64 = msg.chunk.payload;              // SignalWire incoming audio
+  const sttStream = await openai.audio.transcriptions.create({
+    model: "gpt-4o-transcribe",
+    file: Buffer.from(b64, "base64"),
+    mimeType: "audio/raw;encoding=signed-integer;bits=16;rate=8000;endian=little",
+    stream: true
+  });
 
-  try {
-    // 4️⃣  Speech-to-text
-    const sttStream = await openai.audio.transcriptions.create({
-      model: "gpt-4o-transcribe",
-      file: Buffer.from(b64, "base64"),            // uses b64 safely
-      mimeType:
-        "audio/raw;encoding=signed-integer;bits=16;rate=8000;endian=little",
-      stream: true
+  for await (const { text } of sttStream) {
+    if (!text.trim()) continue;
+
+    const [{ message:{ content } }] =
+      (await openai.chat.completions.create({
+        model:"gpt-4o",
+        messages: [
+          { role:"system", content:`Translate to ${lang}` },
+          { role:"user",   content:text }
+        ],
+        temperature:0
+      })).choices;
+
+    const speech = await openai.audio.speech.create({
+      model:"tts-1",
+      voice:"alloy",
+      input:content,
+      format:"pcm",
+      sampleRate:8000
     });
 
-    for await (const { text } of sttStream) {
-      if (!text.trim()) continue;                  // skip silence
-
-      // 5️⃣  Translate
-      const { choices: [{ message: { content } }] } =
-        await openai.chat.completions.create({
-          model: "gpt-4o",
-          messages: [
-            { role: "system", content: `Translate to ${lang}` },
-            { role: "user",   content: text }
-          ],
-          temperature: 0
-        });
-
-      // 6️⃣  Text-to-speech
-     const speech = await openai.audio.speech.create({
-      model: "tts-1",
-      voice: "alloy",
-      input: content,
-      format: "pcm",          // raw signed-int16 little-endian
-      sampleRate: 8000        // ↓ matches a normal phone call
-    });
-
-
-      // 7️⃣  Send the translated audio back to SignalWire
-      ws.send(
-        JSON.stringify({
-          event: "media",
-          media: { payload: Buffer.from(speech.audio).toString("base64") }
-        })
-      );
-    }
-  } catch (err) {
-    console.error("❌ OpenAI error:", err);
+    ws.send(JSON.stringify({
+      event:"media",
+      track:"outbound",
+      media:{ payload: Buffer.from(speech.audio).toString("base64") }
+    }));
   }
 });
+
 
 });
 const server = app.listen(process.env.PORT || 8080);

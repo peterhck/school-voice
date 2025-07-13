@@ -21,30 +21,60 @@ ws.on('error', err => {
   const lang = { "1": "Spanish", "2": "Haitian Creole", "3": "Mandarin" }
                [new URL(req.url,"http://x").searchParams.get("lang")] || "Spanish";
   ws.on("message", async frame => {
+  // 1️⃣  Parse the JSON that SignalWire sends
+  const msg = JSON.parse(frame);
 
-    const { event, media } = JSON.parse(frame);
-    if (event !== "media") return;
+  // 2️⃣  Ignore heart-beats and non-audio events
+  if (msg.event !== "media" || !msg.chunk || !msg.chunk.payload) return;
 
+  // 3️⃣  Extract the base-64 audio blob into b64
+  const b64 = msg.chunk.payload;       // <-- NOW b64 exists
 
-    const stt = await openai.audio.transcriptions.create({
-  model: "gpt-4o-transcribe",          // or "whisper-1" for non-streaming
-  file: Buffer.from(b64, "base64"),    // <-- CORRECT key
-  mimeType: "audio/raw;encoding=signed-integer;bits=16;rate=8000;endian=little",
-  stream: true                         // keep if you want incremental words
+  try {
+    // 4️⃣  Speech-to-text
+    const sttStream = await openai.audio.transcriptions.create({
+      model: "gpt-4o-transcribe",
+      file: Buffer.from(b64, "base64"),            // uses b64 safely
+      mimeType:
+        "audio/raw;encoding=signed-integer;bits=16;rate=8000;endian=little",
+      stream: true
+    });
+
+    for await (const { text } of sttStream) {
+      if (!text.trim()) continue;                  // skip silence
+
+      // 5️⃣  Translate
+      const { choices: [{ message: { content } }] } =
+        await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            { role: "system", content: `Translate to ${targetLang}` },
+            { role: "user",   content: text }
+          ],
+          temperature: 0
+        });
+
+      // 6️⃣  Text-to-speech
+      const speech = await openai.audio.speech.create({
+        model: "tts-1",
+        voice: "alloy",
+        input: content,
+        format: "pcm"
+      });
+
+      // 7️⃣  Send the translated audio back to SignalWire
+      ws.send(
+        JSON.stringify({
+          event: "media",
+          media: { payload: Buffer.from(speech.audio).toString("base64") }
+        })
+      );
+    }
+  } catch (err) {
+    console.error("❌ OpenAI error:", err);
+  }
 });
 
-    for await (const { text } of stt) {
-      const [{ message:{ content }}] =
-        (await openai.chat.completions.create({
-          model:"gpt-4o", messages:[
-            {role:"system",content:`Translate to ${lang}`},
-            {role:"user",content:text}], temperature:0 })).choices;
-      const speech = await openai.audio.speech.create({
-        model:"tts-1", voice:"alloy", input:content, format:"pcm"});
-      ws.send(JSON.stringify({event:"media",
-                media:{payload:Buffer.from(speech.audio).toString("base64")}}));
-    }
-  });
 });
 const server = app.listen(process.env.PORT || 8080);
 server.on("upgrade",(req,sock,head)=>wss.handleUpgrade(req,sock,head,

@@ -29,7 +29,14 @@ ws.on('error', err => {
 
   console.log("The data is media data.");
 
-  const b64 = msg.chunk.payload;              // SignalWire incoming audio
+  /* 2️⃣  Extract base-64 payload (works for SignalWire or Twilio) */
+  const b64 =
+        msg.media?.payload   ??   // SignalWire format
+        msg.chunk?.payload   ??   // older Twilio format
+        null;
+
+  if (!b64) return;               // keep-alive or unknown frame – ignore
+
   const sttStream = await openai.audio.transcriptions.create({
     model: "gpt-4o-transcribe",
     file: Buffer.from(b64, "base64"),

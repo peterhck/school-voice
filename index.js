@@ -9,9 +9,14 @@ wss.on("connection", (ws, req) => {
 
 console.log('🟢 WebSocket CONNECTED:', req.url);
 
-ws.on('close', (code, reason) => {
-  console.log('🔴 WebSocket CLOSED:', code, reason.toString());
-});
+const ka = setInterval(() => {
+  if (ws.readyState === ws.OPEN)
+    ws.send(JSON.stringify({ event:"media", track:"outbound",
+                             media:{ payload:"" }}));
+}, 4000);
+
+ws.on("close", () => clearInterval(ka));
+
 
 ws.on('error', err => {
   console.error('❌ WebSocket ERROR:', err);

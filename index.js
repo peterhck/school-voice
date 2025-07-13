@@ -6,6 +6,18 @@ const app = express();
 const wss = new WebSocketServer({ noServer: true });
 
 wss.on("connection", (ws, req) => {
+
+console.log('🟢 WebSocket CONNECTED:', req.url);
+
+ws.on('close', (code, reason) => {
+  console.log('🔴 WebSocket CLOSED:', code, reason.toString());
+});
+
+ws.on('error', err => {
+  console.error('❌ WebSocket ERROR:', err);
+});
+
+
   const lang = { "1": "Spanish", "2": "Haitian Creole", "3": "Mandarin" }
                [new URL(req.url,"http://x").searchParams.get("lang")] || "Spanish";
   ws.on("message", async frame => {

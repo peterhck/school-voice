@@ -58,12 +58,14 @@ ws.on('error', err => {
         });
 
       // 6️⃣  Text-to-speech
-      const speech = await openai.audio.speech.create({
-        model: "tts-1",
-        voice: "alloy",
-        input: content,
-        format: "pcm"
-      });
+     const speech = await openai.audio.speech.create({
+      model: "tts-1",
+      voice: "alloy",
+      input: content,
+      format: "pcm",          // raw signed-int16 little-endian
+      sampleRate: 8000        // ↓ matches a normal phone call
+    });
+
 
       // 7️⃣  Send the translated audio back to SignalWire
       ws.send(

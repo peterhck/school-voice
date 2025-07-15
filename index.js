@@ -44,10 +44,15 @@ ws.on('error', err => {
 
   if (!b64) return;               // keep-alive or unknown frame – ignore
 
+  const audioFile = await openai.File.fromBuffer(
+  Buffer.from(b64, "base64"),
+  "audio.pcm"                                     // filename
+);
+
   const sttStream = await openai.audio.transcriptions.create({
     model: "gpt-4o-transcribe",
-    file: Buffer.from(b64, "base64"),
-    mimeType: "audio/raw;encoding=signed-integer;bits=16;rate=8000;endian=little",
+    file: audioFile,
+    mimeType: "audio/pcm;codecs=signed-integer;rate=8000",
     stream: true
   });
 

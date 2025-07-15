@@ -62,6 +62,19 @@ ws.on('error', err => {
   return Buffer.concat([header, pcmBuf]);
 }
 
+function sendPcmIn20MsChunks(ws, pcmBuf) {
+  const FRAME_BYTES = 160 * 2;        // 20 ms × 8 kHz × 16-bit = 320 bytes
+  for (let off = 0; off < pcmBuf.length; off += FRAME_BYTES) {
+    const slice = pcmBuf.subarray(off, off + FRAME_BYTES);   // <= 20ms
+    ws.send(JSON.stringify({
+      event: "media",
+      track: "outbound",
+      media: { payload: slice.toString("base64") }
+    }));
+  }
+}
+
+
 
 
   ws.on("message", async frame => {
@@ -132,11 +145,14 @@ const wavFile = {
     });
 
     /* 5️⃣  Ship audio back to SignalWire */
-    ws.send(JSON.stringify({
-      event:"media",
-      track:"outbound",
-      media:{ payload: Buffer.from(speech.audio).toString("base64") }
-    }));
+  //  ws.send(JSON.stringify({
+   //   event:"media",
+   //   track:"outbound",
+   //   media:{ payload: Buffer.from(speech.audio).toString("base64") }
+   // }));
+
+    sendPcmIn20MsChunks(ws, speech.audio);   // speech.audio is a Buffer
+
   } catch (err) {
     console.error("❌ OpenAI STT/TTS error:", err.message || err);
   }

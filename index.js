@@ -30,6 +30,33 @@ ws.on('error', err => {
 
   console.log("🟢 WebSocket CONNECTED:", req.url, "→ translating to", lang);
 
+  function pcmToWavBuffer(pcmBuf, sampleRate = 8000) {
+  const numFrames = pcmBuf.length / 2;           // 16-bit = 2 bytes
+  const header = Buffer.alloc(44);
+
+  /* "RIFF" chunk descriptor */
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + pcmBuf.length, 4);   // file size-8
+  header.write("WAVE", 8);
+
+  /* "fmt " sub-chunk */
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16,   16);               // subchunk1Size (PCM)
+  header.writeUInt16LE(1,    20);               // audioFormat 1 = PCM
+  header.writeUInt16LE(1,    22);               // numChannels
+  header.writeUInt32LE(sampleRate, 24);         // sampleRate
+  header.writeUInt32LE(sampleRate * 2, 28);     // byteRate = sr * ch * 2
+  header.writeUInt16LE(2,    32);               // blockAlign
+  header.writeUInt16LE(16,   34);               // bitsPerSample
+
+  /* "data" sub-chunk */
+  header.write("data", 36);
+  header.writeUInt32LE(pcmBuf.length, 40);
+
+  return Buffer.concat([header, pcmBuf]);
+}
+
+
   ws.on("message", async frame => {
 
   //console.log("The frames have been sent...",frame);
@@ -47,8 +74,10 @@ ws.on('error', err => {
   if (!b64) return;               // keep-alive or unknown frame – ignore
 
 const pcmBuffer   = Buffer.from(b64, "base64");
-const pcmStream   = Readable.from(pcmBuffer);     // make it a stream
-const audioFile   = await toFile(pcmStream, "audio.pcm"); // 👈 helper adds filename + size
+const wavBuf = pcmToWavBuffer(pcmBuffer);          // 44-byte header + audio
+/* turn it into a stream & File-like object */
+const wavStream = Readable.from(wavBuf);
+const audioFile = await toFile(wavStream, "chunk.wav");
 
 
   const sttStream = await openai.audio.transcriptions.create({

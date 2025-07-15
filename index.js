@@ -29,6 +29,8 @@ ws.on('error', err => {
   console.log("🟢 WebSocket CONNECTED:", req.url, "→ translating to", lang);
 
   ws.on("message", async frame => {
+
+  console.log("The frames have been sent...",frame);
   const msg = JSON.parse(frame);
   if (msg.event !== "media" || !msg.chunk || !msg.chunk.payload) return;
 

@@ -32,7 +32,7 @@ ws.on('error', err => {
 
   console.log("The frames have been sent...",frame);
   const msg = JSON.parse(frame);
-  if (msg.event !== "media" || !msg.chunk || !msg.chunk.payload) return;
+  if (msg.event !== "media" || !msg.media || !msg.media.payload) return;
 
   console.log("The data is media data.");
 

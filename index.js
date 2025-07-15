@@ -46,7 +46,7 @@ ws.on('error', err => {
 
   if (!b64) return;               // keep-alive or unknown frame – ignore
 
-const pcmBuffer   = Buffer.from(base64, "base64");
+const pcmBuffer   = Buffer.from(b64, "base64");
 const pcmStream   = Readable.from(pcmBuffer);     // make it a stream
 const audioFile   = await toFile(pcmStream, "audio.pcm"); // 👈 helper adds filename + size
 

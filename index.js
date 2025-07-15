@@ -100,7 +100,7 @@ ws.on('error', err => {
       (await openai.chat.completions.create({
         model:"gpt-4o",
         messages:[
-          {role:"system",content:`Translate to ${targetLang}`},
+          {role:"system",content:`Translate to ${lang}`},
           {role:"user",  content:text}
         ],
         temperature:0

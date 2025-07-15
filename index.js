@@ -1,4 +1,5 @@
 import express from "express";
+import { Readable } from "stream";
 import { WebSocketServer } from "ws";
 import OpenAI from "openai";
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -44,14 +45,13 @@ ws.on('error', err => {
 
   if (!b64) return;               // keep-alive or unknown frame – ignore
 
-  const audioFile = await openai.File.fromBuffer(
-  Buffer.from(b64, "base64"),
-  "audio.pcm"                                     // filename
-);
+const pcmBuffer  = Buffer.from(b64, "base64"); // 20 ms of 16-bit PCM
+const audioStream = Readable.from(pcmBuffer);  // ⬅️  makes a stream
+audioStream.path  = "audio.pcm";               // ⬅️  fake filename (required)
 
   const sttStream = await openai.audio.transcriptions.create({
     model: "gpt-4o-transcribe",
-    file: audioFile,
+    file: audioStream,
     mimeType: "audio/pcm;codecs=signed-integer;rate=8000",
     stream: true
   });

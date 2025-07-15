@@ -8,6 +8,7 @@ const app = express();
 const wss = new WebSocketServer({ noServer: true });
 
 const pcmBufferRing = [];            // store incoming 20 ms chunks
+const MAX_FRAMES = 100;                 // 100 × 20 ms ≈ 2 s
 
 wss.on("connection", (ws, req) => {
 
@@ -76,6 +77,7 @@ ws.on('error', err => {
   if (!b64) return;               // keep-alive or unknown frame – ignore
 
   pcmBufferRing.push(Buffer.from(b64, "base64"));
+  if (pcmBufferRing.length > MAX_FRAMES) pcmBufferRing.shift();   // drop oldest
 
    /* 50 frames ≈ 1 s @ 20 ms per frame */
   if (pcmBufferRing.length < 50) return;

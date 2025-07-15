@@ -7,6 +7,8 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const app = express();
 const wss = new WebSocketServer({ noServer: true });
 
+const pcmBufferRing = [];            // store incoming 20 ms chunks
+
 wss.on("connection", (ws, req) => {
 
 console.log('🟢 WebSocket CONNECTED:', req.url);
@@ -73,37 +75,38 @@ ws.on('error', err => {
 
   if (!b64) return;               // keep-alive or unknown frame – ignore
 
-const pcmBuffer   = Buffer.from(b64, "base64");
-const wavBuf = pcmToWavBuffer(pcmBuffer);          // 44-byte header + audio
-/* turn it into a stream & File-like object */
-const wavStream = Readable.from(wavBuf);
-const audioFile = await toFile(wavStream, "chunk.wav");
+  pcmBufferRing.push(Buffer.from(b64, "base64"));
+
+   /* 50 frames ≈ 1 s @ 20 ms per frame */
+  if (pcmBufferRing.length < 50) return;
+
+ /* 1️⃣  Build a single 1-second WAV */
+  const pcmBig   = Buffer.concat(pcmBufferRing.splice(0));     // clear ring
+  const wavBuf   = pcmToWavBuffer(pcmBig);                     // helper from earlier
+  const wavFile  = await toFile(Readable.from(wavBuf), "chunk.wav");
 
 
-  const sttStream = await openai.audio.transcriptions.create({
-    model: "gpt-4o-transcribe",
-    file: audioFile,
-    mimeType: "audio/pcm;codecs=signed-integer;rate=8000",
-    stream: true
-  });
+   try {
+    /* 2️⃣  Transcribe */
+    const { text } = await openai.audio.transcriptions.create({
+      model:    "gpt-4o-transcribe",          // or "whisper-1"
+      file:     wavFile,
+      mimeType: "audio/wav"
+    });
+    if (!text.trim()) return;
 
-  console.log("The data has been transcribed by OpenAI, gpt-4o-transcribe.");
-
-  for await (const { text } of sttStream) {
-    if (!text.trim()) continue;
-
+    /* 3️⃣  Translate  */
     const [{ message:{ content } }] =
       (await openai.chat.completions.create({
         model:"gpt-4o",
-        messages: [
-          { role:"system", content:`Translate to ${lang}` },
-          { role:"user",   content:text }
+        messages:[
+          {role:"system",content:`Translate to ${targetLang}`},
+          {role:"user",  content:text}
         ],
         temperature:0
       })).choices;
 
-      console.log("The contents of the Translation is: ", content);
-
+    /* 4️⃣  TTS (8 kHz PCM) */
     const speech = await openai.audio.speech.create({
       model:"tts-1",
       voice:"alloy",
@@ -112,15 +115,14 @@ const audioFile = await toFile(wavStream, "chunk.wav");
       sampleRate:8000
     });
 
-    console.log("The text has been converted to audio with OpenAI");
-
+    /* 5️⃣  Ship audio back to SignalWire */
     ws.send(JSON.stringify({
       event:"media",
       track:"outbound",
       media:{ payload: Buffer.from(speech.audio).toString("base64") }
     }));
-
-    console.log("The audio data has been sent back to the websocket.");
+  } catch (err) {
+    console.error("❌ OpenAI STT/TTS error:", err.message || err);
   }
 });
 

@@ -80,17 +80,27 @@ ws.on('error', err => {
    /* 50 frames ≈ 1 s @ 20 ms per frame */
   if (pcmBufferRing.length < 50) return;
 
- /* 1️⃣  Build a single 1-second WAV */
+  /* 1️⃣  Build 1-second WAV  */
+const wavBuf = pcmToWavBuffer(Buffer.concat(pcmBufferRing));
+
+/* 2️⃣  Create a File-like object */
+const audioFile = {
+  data: wavBuf,          // Buffer
+  name: "chunk.wav",
+  type: "audio/wav"      // MIME
+};
+
+ /* 1️⃣  Build a single 1-second WAV 
   const pcmBig   = Buffer.concat(pcmBufferRing.splice(0));     // clear ring
   const wavBuf   = pcmToWavBuffer(pcmBig);                     // helper from earlier
-  const wavFile  = await toFile(Readable.from(wavBuf), "chunk.wav");
+  const wavFile  = await toFile(Readable.from(wavBuf), "chunk.wav"); */
 
 
    try {
     /* 2️⃣  Transcribe */
     const { text } = await openai.audio.transcriptions.create({
       model:    "gpt-4o-transcribe",          // or "whisper-1"
-      file:     wavFile,
+      file:     audioFile,
       mimeType: "audio/wav"
     });
     if (!text.trim()) return;

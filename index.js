@@ -7,8 +7,11 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const app = express();
 const wss = new WebSocketServer({ noServer: true });
 
-const pcmBufferRing = [];            // store incoming 20 ms chunks
+
+let frameRing = [];                    // holds ≤ 50 Buffers
 const MAX_FRAMES = 100;                 // 100 × 20 ms ≈ 2 s
+const FRAME_MS      = 20;              // each SignalWire frame is 20 ms
+const FRAMES_PER_WAV = 1000 / FRAME_MS; // 50 frames ≈ 1 s
 
 wss.on("connection", (ws, req) => {
 
@@ -33,31 +36,32 @@ ws.on('error', err => {
 
   console.log("🟢 WebSocket CONNECTED:", req.url, "→ translating to", lang);
 
-  function pcmToWavBuffer(pcmBuf, sampleRate = 8000) {
-  const numFrames = pcmBuf.length / 2;           // 16-bit = 2 bytes
+ function pcmToWavBuffer(pcmBuf, sampleRate = 8000) {
+  const numFrames  = pcmBuf.length / 2;            // 16-bit PCM → 2 bytes/sample
+  const byteRate   = sampleRate * 2;               // 1 ch × 16-bit
+  const blockAlign = 2;
+
   const header = Buffer.alloc(44);
 
-  /* "RIFF" chunk descriptor */
-  header.write("RIFF", 0);
-  header.writeUInt32LE(36 + pcmBuf.length, 4);   // file size-8
-  header.write("WAVE", 8);
+  header.write("RIFF", 0);                         // ChunkID
+  header.writeUInt32LE(36 + pcmBuf.length, 4);     // ChunkSize
+  header.write("WAVE", 8);                         // Format
 
-  /* "fmt " sub-chunk */
-  header.write("fmt ", 12);
-  header.writeUInt32LE(16,   16);               // subchunk1Size (PCM)
-  header.writeUInt16LE(1,    20);               // audioFormat 1 = PCM
-  header.writeUInt16LE(1,    22);               // numChannels
-  header.writeUInt32LE(sampleRate, 24);         // sampleRate
-  header.writeUInt32LE(sampleRate * 2, 28);     // byteRate = sr * ch * 2
-  header.writeUInt16LE(2,    32);               // blockAlign
-  header.writeUInt16LE(16,   34);               // bitsPerSample
+  header.write("fmt ", 12);                        // SubChunk1ID
+  header.writeUInt32LE(16, 16);                    // SubChunk1Size (PCM)
+  header.writeUInt16LE(1, 20);                     // AudioFormat (1=PCM)
+  header.writeUInt16LE(1, 22);                     // NumChannels
+  header.writeUInt32LE(sampleRate, 24);            // SampleRate
+  header.writeUInt32LE(byteRate, 28);              // ByteRate
+  header.writeUInt16LE(blockAlign, 32);            // BlockAlign
+  header.writeUInt16LE(16, 34);                    // BitsPerSample
 
-  /* "data" sub-chunk */
-  header.write("data", 36);
-  header.writeUInt32LE(pcmBuf.length, 40);
+  header.write("data", 36);                        // SubChunk2ID
+  header.writeUInt32LE(pcmBuf.length, 40);         // SubChunk2Size
 
   return Buffer.concat([header, pcmBuf]);
 }
+
 
 
   ws.on("message", async frame => {
@@ -76,17 +80,17 @@ ws.on('error', err => {
 
   if (!b64) return;               // keep-alive or unknown frame – ignore
 
-  pcmBufferRing.push(Buffer.from(b64, "base64"));
-  if (pcmBufferRing.length > MAX_FRAMES) pcmBufferRing.shift();   // drop oldest
+  frameRing.push(Buffer.from(b64, "base64"));
+ if (frameRing.length < FRAMES_PER_WAV) return;   // wait until we have 1 s
 
-   /* 50 frames ≈ 1 s @ 20 ms per frame */
-  if (pcmBufferRing.length < 50) return;
+ /* 1️⃣  Build ~1 s WAV & clear ring */
+  const pcmBlock = Buffer.concat(frameRing.splice(0));
+  const wavBuf   = pcmToWavBuffer(pcmBlock);       // header + PCM
 
-  /* 1️⃣  Build 1-second WAV  */
-const wavBuf = pcmToWavBuffer(Buffer.concat(pcmBufferRing));
+ 
 
 /* 2️⃣  Create a File-like object */
-const audioFile = {
+const wavFile = {
   data: wavBuf,          // Buffer
   name: "chunk.wav",
   type: "audio/wav"      // MIME
@@ -102,7 +106,7 @@ const audioFile = {
     /* 2️⃣  Transcribe */
     const { text } = await openai.audio.transcriptions.create({
       model:    "gpt-4o-transcribe",          // or "whisper-1"
-      file:     audioFile,
+      file:     wavFile,
       mimeType: "audio/wav"
     });
     if (!text.trim()) return;
